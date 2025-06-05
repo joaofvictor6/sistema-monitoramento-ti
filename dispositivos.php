@@ -67,6 +67,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     break;
                     
                 case 'verificar':
+                    $ip = $db->query("SELECT ip FROM dispositivos WHERE id = " . (int)$_POST['id'])->fetchColumn();
+                    $status = verificarStatusTCP($ip) ? 'Ativo' : 'Inativo';
+                    
                     $stmt = $db->prepare("UPDATE dispositivos SET 
                                         ultima_verificacao = NOW(),
                                         status = :status,
@@ -75,15 +78,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     $stmt->execute([
                         ':id' => $_POST['id'],
-                        ':status' => $_POST['status'],
+                        ':status' => $status,
                         ':usuario_id' => $_SESSION['user_id']
                     ]);
                     
-                    $_SESSION['message'] = ['type' => 'success', 'text' => 'Status do dispositivo atualizado!'];
+                    $_SESSION['message'] = ['type' => 'success', 'text' => 'Status do dispositivo atualizado para ' . $status . '!'];
                     break;
             }
             
-            // Redirecionar para evitar reenvio do formulário
             header("Location: " . $_SERVER['PHP_SELF']);
             exit();
             
@@ -155,8 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <td><?php echo htmlspecialchars($dispositivo['tipo']); ?></td>
                                     <td>
                                         <span class="badge 
-                                            <?php echo $dispositivo['status'] === 'Online' ? 'bg-success' : 
-                                                  ($dispositivo['status'] === 'Manutenção' ? 'bg-warning' : 'bg-danger'); ?>">
+                                            <?php echo $dispositivo['status'] === 'Ativo' ? 'bg-success' : 'bg-danger'; ?>">
                                             <?php echo $dispositivo['status']; ?>
                                         </span>
                                     </td>
@@ -195,10 +196,214 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
     
-    <!-- Modais -->
-    <?php include __DIR__ . '/includes/device_modals.php'; ?>
+    <!-- Modal Adicionar Dispositivo -->
+    <div class="modal fade" id="addDeviceModal" tabindex="-1" aria-labelledby="addDeviceModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addDeviceModalLabel">Adicionar Dispositivo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="POST">
+                    <div class="modal-body">
+                        <input type="hidden" name="action" value="add">
+                        
+                        <div class="mb-3">
+                            <label for="nome" class="form-label">Nome do Dispositivo</label>
+                            <input type="text" class="form-control" id="nome" name="nome" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="ip" class="form-label">Endereço IP</label>
+                            <input type="text" class="form-control" id="ip" name="ip" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="tipo" class="form-label">Tipo</label>
+                            <select class="form-select" id="tipo" name="tipo" required>
+                                <option value="">Selecione...</option>
+                                <option value="Servidor">Servidor</option>
+                                <option value="Switch">Switch</option>
+                                <option value="Roteador">Roteador</option>
+                                <option value="Firewall">Firewall</option>
+                                <option value="Outro">Outro</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="status" class="form-label">Status</label>
+                            <select class="form-select" id="status" name="status" required>
+                                <option value="Ativo">Ativo</option>
+                                <option value="Inativo">Inativo</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="local" class="form-label">Localização</label>
+                            <input type="text" class="form-control" id="local" name="local" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="observacoes" class="form-label">Observações</label>
+                            <textarea class="form-control" id="observacoes" name="observacoes" rows="3"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
     
+    <!-- Modal Editar Dispositivo -->
+    <div class="modal fade" id="editDeviceModal" tabindex="-1" aria-labelledby="editDeviceModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="editDeviceModalLabel">Editar Dispositivo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="POST">
+                    <div class="modal-body">
+                        <input type="hidden" name="action" value="edit">
+                        <input type="hidden" name="id" id="edit_id">
+                        
+                        <div class="mb-3">
+                            <label for="edit_nome" class="form-label">Nome do Dispositivo</label>
+                            <input type="text" class="form-control" id="edit_nome" name="nome" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit_ip" class="form-label">Endereço IP</label>
+                            <input type="text" class="form-control" id="edit_ip" name="ip" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit_tipo" class="form-label">Tipo</label>
+                            <select class="form-select" id="edit_tipo" name="tipo" required>
+                                <option value="Servidor">Servidor</option>
+                                <option value="Switch">Switch</option>
+                                <option value="Roteador">Roteador</option>
+                                <option value="Firewall">Firewall</option>
+                                <option value="Outro">Outro</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit_status" class="form-label">Status</label>
+                            <select class="form-select" id="edit_status" name="status" required>
+                                <option value="Ativo">Ativo</option>
+                                <option value="Inativo">Inativo</option>
+                            </select>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit_local" class="form-label">Localização</label>
+                            <input type="text" class="form-control" id="edit_local" name="local" required>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <label for="edit_observacoes" class="form-label">Observações</label>
+                            <textarea class="form-control" id="edit_observacoes" name="observacoes" rows="3"></textarea>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Salvar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal Excluir Dispositivo -->
+    <div class="modal fade" id="deleteDeviceModal" tabindex="-1" aria-labelledby="deleteDeviceModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="deleteDeviceModalLabel">Confirmar Exclusão</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="POST">
+                    <input type="hidden" name="action" value="delete">
+                    <input type="hidden" name="id" id="delete_id">
+                    <div class="modal-body">
+                        <p>Tem certeza que deseja excluir este dispositivo?</p>
+                        <p class="fw-bold" id="delete_device_name"></p>
+                        <p class="text-danger">Esta ação não pode ser desfeita!</p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-danger">Excluir</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal Verificar Dispositivo -->
+    <div class="modal fade" id="verifyDeviceModal" tabindex="-1" aria-labelledby="verifyDeviceModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="verifyDeviceModalLabel">Verificar Dispositivo</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form method="POST">
+                    <input type="hidden" name="action" value="verificar">
+                    <input type="hidden" name="id" id="verify_id">
+                    <div class="modal-body">
+                        <p>Deseja verificar o status atual do dispositivo?</p>
+                        <p class="fw-bold" id="verify_device_name"></p>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Verificar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="assets/js/dispositivos.js"></script>
+    <script>
+        // Inicializar modais de edição
+        document.querySelectorAll('.edit-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const modal = new bootstrap.Modal(document.getElementById('editDeviceModal'));
+                document.getElementById('edit_id').value = this.dataset.id;
+                document.getElementById('edit_nome').value = this.dataset.nome;
+                document.getElementById('edit_ip').value = this.dataset.ip;
+                document.getElementById('edit_tipo').value = this.dataset.tipo;
+                document.getElementById('edit_status').value = this.dataset.status;
+                document.getElementById('edit_local').value = this.dataset.local;
+                document.getElementById('edit_observacoes').value = this.dataset.observacoes;
+                modal.show();
+            });
+        });
+        
+        // Inicializar modais de exclusão
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const modal = new bootstrap.Modal(document.getElementById('deleteDeviceModal'));
+                document.getElementById('delete_id').value = this.dataset.id;
+                document.getElementById('delete_device_name').textContent = 
+                    this.parentNode.parentNode.parentNode.querySelector('td:first-child').textContent;
+                modal.show();
+            });
+        });
+        
+        // Inicializar modais de verificação
+        document.querySelectorAll('.verify-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const modal = new bootstrap.Modal(document.getElementById('verifyDeviceModal'));
+                document.getElementById('verify_id').value = this.dataset.id;
+                document.getElementById('verify_device_name').textContent = this.dataset.nome;
+                modal.show();
+            });
+        });
+    </script>
 </body>
 </html>

@@ -23,55 +23,120 @@ function requireLogin() {
 }
 
 /**
- * Funções para o Dashboard
+ * Funções para verificação de status via TCP
  */
-
-function contarDispositivosRede($pdo) {
-    if (!$pdo) {
-        error_log("Erro: Conexão com banco de dados não disponível");
-        return ['total' => 0, 'ativos' => 0];
+function verificarStatusTCP($ip, $porta = 80, $timeout = 1) {
+    if (empty($ip) || !filter_var($ip, FILTER_VALIDATE_IP)) {
+        return false;
     }
     
     try {
-        $stmt = $pdo->query("SELECT COUNT(*) as total FROM dispositivos WHERE status = 'online'");
-        $ativos = $stmt->fetchColumn();
+        $socket = @fsockopen($ip, $porta, $errno, $errstr, $timeout);
+        if ($socket) {
+            fclose($socket);
+            return true;
+        }
+        return false;
+    } catch (Exception $e) {
+        error_log("Erro ao verificar IP $ip: " . $e->getMessage());
+        return false;
+    }
+}
+
+function verificarImpressora($ip, $timeout = 1) {
+    return verificarStatusTCP($ip, 9100, $timeout);
+}
+
+/**
+ * Sistema de monitoramento com cache
+ */
+function monitorarDispositivos($pdo) {
+    $cache_file = __DIR__ . '/../cache/dispositivos.cache';
+    $cache_time = 60; // 5 minutos de cache
+    
+    if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time) {
+        return json_decode(file_get_contents($cache_file), true);
+    }
+    
+    try {
+        $stmt = $pdo->query("SELECT id, ip, tipo FROM dispositivos WHERE ativo = 1");
+        $dispositivos = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        $stmt = $pdo->query("SELECT COUNT(*) as total FROM dispositivos");
-        $total = $stmt->fetchColumn();
+        $stmt = $pdo->query("SELECT id, ip FROM impressoras WHERE ativo = 1");
+        $impressoras = $stmt->fetchAll(PDO::FETCH_ASSOC);
         
-        return ['total' => $total, 'ativos' => $ativos];
+        $resultados = [
+            'dispositivos' => ['total' => 0, 'ativos' => 0, 'detalhes' => []],
+            'impressoras' => ['total' => 0, 'ativas' => 0, 'detalhes' => []],
+            'atualizado' => date('H:i:s')
+        ];
+        
+        foreach ($dispositivos as $dispositivo) {
+            $status = verificarStatusTCP($dispositivo['ip']);
+            $resultados['dispositivos']['total']++;
+            if ($status) $resultados['dispositivos']['ativos']++;
+            $resultados['dispositivos']['detalhes'][] = [
+                'id' => $dispositivo['id'],
+                'ip' => $dispositivo['ip'],
+                'status' => $status ? 'Online' : 'Offline'
+            ];
+        }
+        
+        foreach ($impressoras as $impressora) {
+            $status = verificarImpressora($impressora['ip']);
+            $resultados['impressoras']['total']++;
+            if ($status) $resultados['impressoras']['ativas']++;
+            $resultados['impressoras']['detalhes'][] = [
+                'id' => $impressora['id'],
+                'ip' => $impressora['ip'],
+                'status' => $status ? 'Online' : 'Offline'
+            ];
+        }
+        
+        file_put_contents($cache_file, json_encode($resultados));
+        return $resultados;
     } catch (PDOException $e) {
-        error_log("Erro ao contar dispositivos: " . $e->getMessage());
-        return ['total' => 0, 'ativos' => 0];
+        error_log("Erro ao monitorar dispositivos: " . $e->getMessage());
+        return [
+            'dispositivos' => ['total' => 0, 'ativos' => 0],
+            'impressoras' => ['total' => 0, 'ativas' => 0],
+            'atualizado' => 'Erro'
+        ];
+    }
+}
+
+/**
+ * Funções para o dashboard
+ */
+function contarDispositivosRede($pdo) {
+    try {
+        $monitoramento = monitorarDispositivos($pdo);
+        return [
+            'total' => $monitoramento['dispositivos']['total'],
+            'ativos' => $monitoramento['dispositivos']['ativos'],
+            'atualizado' => $monitoramento['atualizado']
+        ];
+    } catch (Exception $e) {
+        error_log("Erro em contarDispositivosRede: " . $e->getMessage());
+        return ['total' => 0, 'ativos' => 0, 'atualizado' => 'Erro'];
     }
 }
 
 function contarImpressoras($pdo) {
-    if (!$pdo) {
-        error_log("Erro: Conexão com banco de dados não disponível");
-        return ['total' => 0, 'ativas' => 0];
-    }
-    
     try {
-        $stmt = $pdo->query("SELECT COUNT(*) as total FROM impressoras WHERE status = 'Ativo'");
-        $ativas = $stmt->fetchColumn();
-        
-        $stmt = $pdo->query("SELECT COUNT(*) as total FROM impressoras");
-        $total = $stmt->fetchColumn();
-        
-        return ['total' => $total, 'ativas' => $ativas];
-    } catch (PDOException $e) {
-        error_log("Erro ao contar impressoras: " . $e->getMessage());
-        return ['total' => 0, 'ativas' => 0];
+        $monitoramento = monitorarDispositivos($pdo);
+        return [
+            'total' => $monitoramento['impressoras']['total'],
+            'ativas' => $monitoramento['impressoras']['ativas'],
+            'atualizado' => $monitoramento['atualizado']
+        ];
+    } catch (Exception $e) {
+        error_log("Erro em contarImpressoras: " . $e->getMessage());
+        return ['total' => 0, 'ativas' => 0, 'atualizado' => 'Erro'];
     }
 }
 
 function obterItensEstoque($pdo) {
-    if (!$pdo) {
-        error_log("Erro: Conexão com banco de dados não disponível");
-        return [];
-    }
-    
     try {
         $stmt = $pdo->query("SELECT nome as item, local, quantidade FROM estoque ORDER BY quantidade ASC");
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -82,11 +147,6 @@ function obterItensEstoque($pdo) {
 }
 
 function contarItensEstoqueAtivos($pdo) {
-    if (!$pdo) {
-        error_log("Erro: Conexão com banco de dados não disponível");
-        return 0;
-    }
-    
     try {
         $stmt = $pdo->query("SELECT COUNT(*) as total FROM estoque WHERE quantidade > 0");
         return $stmt->fetchColumn();
@@ -97,11 +157,6 @@ function contarItensEstoqueAtivos($pdo) {
 }
 
 function contarItensEstoqueCriticos($pdo) {
-    if (!$pdo) {
-        error_log("Erro: Conexão com banco de dados não disponível");
-        return 0;
-    }
-    
     try {
         $stmt = $pdo->query("SELECT COUNT(*) as total FROM estoque WHERE quantidade < 3");
         return $stmt->fetchColumn();
@@ -112,11 +167,6 @@ function contarItensEstoqueCriticos($pdo) {
 }
 
 function obterLogsRecentes($pdo, $limite = 5) {
-    if (!$pdo) {
-        error_log("Erro: Conexão com banco de dados não disponível");
-        return [];
-    }
-    
     try {
         $stmt = $pdo->prepare("
             SELECT l.*, u.nome as usuario_nome 
@@ -139,14 +189,9 @@ function formatarData($data) {
 }
 
 function registrarLog($pdo, $usuario_id, $acao, $detalhes = null) {
-    if (!$pdo) {
-        error_log("Erro: Conexão com banco de dados não disponível para registrar log");
-        return false;
-    }
-    
     try {
         $stmt = $pdo->prepare("INSERT INTO logs (usuario_id, acao, detalhes, data_registro) 
-                               VALUES (:usuario_id, :acao, :detalhes, NOW())");
+                             VALUES (:usuario_id, :acao, :detalhes, NOW())");
         $stmt->execute([
             ':usuario_id' => $usuario_id,
             ':acao' => $acao,
@@ -159,21 +204,15 @@ function registrarLog($pdo, $usuario_id, $acao, $detalhes = null) {
     }
 }
 
-/**
- * Funções adicionais úteis
- */
-
 function getInitials($name) {
     $initials = '';
     $nameParts = explode(' ', $name);
-    
     foreach ($nameParts as $part) {
         if (!empty($part)) {
             $initials .= strtoupper(substr($part, 0, 1));
             if (strlen($initials) >= 2) break;
         }
     }
-    
     return $initials;
 }
 

@@ -8,26 +8,20 @@ requireLogin();
 $current_page = basename($_SERVER['PHP_SELF']);
 $initials = getInitials($_SESSION['user_name']);
 
-// Dados para o dashboard
-$dispositivos = [
-    'rede' => contarDispositivosRede($pdo),
-    'impressoras' => contarImpressoras($pdo)
-];
+// Dados para o dashboard com verificação TCP
+$dispositivos = contarDispositivosRede($pdo);
+$impressoras = contarImpressoras($pdo);
 
 $estoque = obterItensEstoque($pdo);
 $itens_ativos = contarItensEstoqueAtivos($pdo);
 $itens_criticos = contarItensEstoqueCriticos($pdo);
 
 // Calcular porcentagens
-$percent_rede = $dispositivos['rede']['total'] > 0 ? 
-    round(($dispositivos['rede']['ativos']/$dispositivos['rede']['total'])*100) : 0;
-$percent_imp = $dispositivos['impressoras']['total'] > 0 ? 
-    round(($dispositivos['impressoras']['ativas']/$dispositivos['impressoras']['total'])*100) : 0;
+$percent_rede = $dispositivos['total'] > 0 ? round(($dispositivos['ativos']/$dispositivos['total'])*100) : 0;
+$percent_imp = $impressoras['total'] > 0 ? round(($impressoras['ativas']/$impressoras['total'])*100) : 0;
 
 // Registrar acesso
-if (isset($_SESSION['user_id'])) {
-    registrarLog($pdo, $_SESSION['user_id'], 'Acesso ao Dashboard');
-}
+registrarLog($pdo, $_SESSION['user_id'], 'Acesso ao Dashboard');
 ?>
 
 <!DOCTYPE html>
@@ -35,7 +29,7 @@ if (isset($_SESSION['user_id'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dispositivos - Dashboard</title>
+    <title>Monitoramento de TI - Dashboard</title>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -364,7 +358,7 @@ if (isset($_SESSION['user_id'])) {
         <div class="navbar-container">
             <div class="brand">
                 <img src="assets/images/icone.png" alt="Logo" class="brand-logo">
-                <span>Dispositivos - DTI</span>
+                <span>Monitoramento de TI</span>
             </div>
             
             <ul class="nav-menu">
@@ -398,6 +392,7 @@ if (isset($_SESSION['user_id'])) {
     <div class="main-content">
         <div class="page-header">
             <h1 class="page-title">Dashboard</h1>
+            <small class="text-muted">Status atualizado em: <?= $dispositivos['atualizado'] ?></small>
         </div>
         
         <!-- Stats Cards -->
@@ -407,8 +402,9 @@ if (isset($_SESSION['user_id'])) {
                     <i class="fas fa-server"></i>
                 </div>
                 <div class="stat-info">
-                    <div class="stat-value"><?= $dispositivos['rede']['total'] ?></div>
+                    <div class="stat-value"><?= $dispositivos['total'] ?></div>
                     <div class="stat-label">Dispositivos de Rede</div>
+                    <small class="text-muted"><?= $dispositivos['ativos'] ?> ativos</small>
                 </div>
             </div>
             
@@ -417,8 +413,9 @@ if (isset($_SESSION['user_id'])) {
                     <i class="fas fa-print"></i>
                 </div>
                 <div class="stat-info">
-                    <div class="stat-value"><?= $dispositivos['impressoras']['total'] ?></div>
+                    <div class="stat-value"><?= $impressoras['total'] ?></div>
                     <div class="stat-label">Impressoras</div>
+                    <small class="text-muted"><?= $impressoras['ativas'] ?> ativas</small>
                 </div>
             </div>
             
@@ -454,8 +451,8 @@ if (isset($_SESSION['user_id'])) {
                     <div class="progress-bar bg-primary" role="progressbar" style="width: <?= $percent_rede ?>%"></div>
                 </div>
                 <div class="d-flex justify-content-between mt-1">
-                    <small class="text-muted"><?= $dispositivos['rede']['ativos'] ?> ativos</small>
-                    <small class="text-muted"><?= $dispositivos['rede']['total'] ?> total</small>
+                    <small class="text-muted"><?= $dispositivos['ativos'] ?> ativos</small>
+                    <small class="text-muted"><?= $dispositivos['total'] ?> total</small>
                 </div>
             </div>
             
@@ -468,8 +465,8 @@ if (isset($_SESSION['user_id'])) {
                     <div class="progress-bar bg-secondary" role="progressbar" style="width: <?= $percent_imp ?>%"></div>
                 </div>
                 <div class="d-flex justify-content-between mt-1">
-                    <small class="text-muted"><?= $dispositivos['impressoras']['ativas'] ?> ativas</small>
-                    <small class="text-muted"><?= $dispositivos['impressoras']['total'] ?> total</small>
+                    <small class="text-muted"><?= $impressoras['ativas'] ?> ativas</small>
+                    <small class="text-muted"><?= $impressoras['total'] ?> total</small>
                 </div>
             </div>
         </div>
@@ -548,7 +545,7 @@ if (isset($_SESSION['user_id'])) {
                 data: {
                     labels: ['Ativos', 'Inativos'],
                     datasets: [{
-                        data: [<?= $dispositivos['rede']['ativos'] ?>, <?= $dispositivos['rede']['total'] - $dispositivos['rede']['ativos'] ?>],
+                        data: [<?= $dispositivos['ativos'] ?>, <?= $dispositivos['total'] - $dispositivos['ativos'] ?>],
                         backgroundColor: ['#4cc9a0', '#e2e8f0'],
                         borderWidth: 0
                     }]
@@ -579,7 +576,7 @@ if (isset($_SESSION['user_id'])) {
                 data: {
                     labels: ['Ativas', 'Inativas'],
                     datasets: [{
-                        data: [<?= $dispositivos['impressoras']['ativas'] ?>, <?= $dispositivos['impressoras']['total'] - $dispositivos['impressoras']['ativas'] ?>],
+                        data: [<?= $impressoras['ativas'] ?>, <?= $impressoras['total'] - $impressoras['ativas'] ?>],
                         backgroundColor: ['#3f37c9', '#e2e8f0'],
                         borderWidth: 0
                     }]
@@ -603,6 +600,49 @@ if (isset($_SESSION['user_id'])) {
                 }
             });
         });
+
+        // Atualização automática via AJAX
+        function atualizarStatus() {
+            fetch('api/status.php')
+                .then(response => {
+                    if (!response.ok) throw new Error('Erro na resposta');
+                    return response.json();
+                })
+                .then(data => {
+                    if (!data.error) {
+                        // Atualizar dispositivos
+                        document.querySelector('.stat-card:nth-child(1) .stat-value').textContent = data.dispositivos.total;
+                        document.querySelector('.stat-card:nth-child(1) small:nth-child(3)').textContent = `${data.dispositivos.ativos} ativos`;
+                        
+                        // Atualizar impressoras
+                        document.querySelector('.stat-card:nth-child(2) .stat-value').textContent = data.impressoras.total;
+                        document.querySelector('.stat-card:nth-child(2) small:nth-child(3)').textContent = `${data.impressoras.ativas} ativas`;
+                        
+                        // Atualizar timestamp
+                        document.querySelector('.page-header small').textContent = `Status atualizado em: ${data.atualizado}`;
+                        
+                        // Atualizar gráficos
+                        updateChart('networkChart', data.dispositivos.ativos, data.dispositivos.total - data.dispositivos.ativos);
+                        updateChart('printersChart', data.impressoras.ativas, data.impressoras.total - data.impressoras.ativas);
+                    }
+                })
+                .catch(error => console.error('Erro ao atualizar status:', error));
+        }
+
+        // Função para atualizar os gráficos
+        function updateChart(chartId, active, inactive) {
+            const chart = Chart.getChart(chartId);
+            if (chart) {
+                chart.data.datasets[0].data = [active, inactive];
+                chart.update();
+            }
+        }
+
+        // Atualizar a cada 30 segundos
+        setInterval(atualizarStatus, 30000);
+
+        // Atualizar imediatamente ao carregar (opcional)
+        // atualizarStatus();
     </script>
 </body>
 </html>
